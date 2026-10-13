@@ -480,17 +480,22 @@ async def test_history_deduplicates_findings_across_file_versions(
     assert len(rows_after_rerun) == len(rows)
 
 
-async def test_history_uses_commit_order_when_author_dates_match(
-    session: AsyncSession, secret_repo: Path
+@pytest.mark.parametrize(
+    "later_author_date",
+    ["2026-01-01T00:00:00+00:00", "2025-12-31T00:00:00+00:00"],
+    ids=["equal-author-dates", "backdated-later-commit"],
+)
+async def test_history_uses_commit_order_regardless_of_author_dates(
+    session: AsyncSession, secret_repo: Path, later_author_date: str
 ) -> None:
-    """Second-resolution author dates must not let a later edit win attribution."""
+    """Equal or backdated author dates must not let a later edit win attribution."""
     date = "2026-01-01T00:00:00+00:00"
     _git(secret_repo, "commit", "--amend", "--no-edit", f"--date={date}")
     first_commit = _git(secret_repo, "rev-parse", "HEAD")
     with (secret_repo / "leak.py").open("a") as source:
         source.write("value = 1\n")
     _git(secret_repo, "add", "leak.py")
-    _git(secret_repo, "commit", "-m", "unrelated edit", f"--date={date}")
+    _git(secret_repo, "commit", "-m", "unrelated edit", f"--date={later_author_date}")
 
     summary = await HistorySecurityScanner(session, "repo-1").scan_history(secret_repo)
     rows = (await session.execute(text("SELECT commit_sha FROM security_findings"))).all()

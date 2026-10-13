@@ -365,16 +365,12 @@ class HistorySecurityScanner:
         ]
         commit_positions = {sha: index for index, (sha, _) in enumerate(commits)}
 
-        def introduction_order(item: tuple[str, str]) -> tuple[datetime, int]:
+        def introduction_order(item: tuple[str, str]) -> int:
             commit_sha = blob_introduced_at.get(item[0], "")
-            introduced_at = _parse_author_date(commit_dates.get(commit_sha, ""))
-            return (
-                introduced_at or datetime.max.replace(tzinfo=UTC),
-                commit_positions.get(commit_sha, len(commits)),
-            )
+            return commit_positions.get(commit_sha, len(commits))
 
-        # rev-list enumerates newest blobs first; the first fingerprint kept
-        # must instead belong to its earliest known introduction.
+        # Keep the earliest introduction in Git history order: author dates
+        # can be backdated. Blobs with unknown provenance are processed last.
         source_items.sort(key=introduction_order)
         contents_map = self._read_blobs_batch(
             repo_path, [blob_sha for blob_sha, _ in source_items]
