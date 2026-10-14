@@ -411,6 +411,35 @@ async def test_history_reports_a_blob_at_its_path_outside_the_allowlist(
     assert {r._mapping["file_path"] for r in rows} == {"src/creds.py"}
 
 
+async def test_history_deduplicates_non_secrets_in_an_allowlisted_path(
+    session: AsyncSession, secret_repo: Path
+) -> None:
+    """The path allowlist suppresses secrets while non-secret findings deduplicate."""
+    (secret_repo / ".gitleaks.toml").write_text("[allowlist]\npaths = ['''^leak\\.py$''']\n")
+    source = secret_repo / "leak.py"
+    with source.open("a") as stream:
+        stream.write('import os\nos.system("echo hello")\n')
+    _git(secret_repo, "add", "leak.py")
+    _git(secret_repo, "commit", "-m", "add a non-secret finding")
+    first_commit = _git(secret_repo, "rev-parse", "HEAD")
+    with source.open("a") as stream:
+        stream.write("value = 1\n")
+    _git(secret_repo, "add", "leak.py")
+    _git(secret_repo, "commit", "-m", "unrelated edit")
+
+    scanner = HistorySecurityScanner(session, "repo-1")
+    summary = await scanner.scan_history(secret_repo, secrets_only=False)
+    rows = (await session.execute(text("SELECT kind, commit_sha FROM security_findings"))).all()
+    assert [(row.kind, row.commit_sha) for row in rows] == [("os_system", first_commit)]
+    assert summary.findings_inserted == 1
+    assert summary.by_kind == {"os_system": 1}
+
+    rerun = await scanner.scan_history(secret_repo, secrets_only=False)
+    assert rerun.findings_inserted == 0
+    assert rerun.by_kind == {}
+    assert rerun.by_severity == {}
+
+
 @pytest.mark.parametrize(
     ("versions", "introduction_indexes"),
     [
