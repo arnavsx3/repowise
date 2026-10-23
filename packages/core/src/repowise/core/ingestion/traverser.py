@@ -1126,6 +1126,33 @@ def _objc_header_language(abs_path: Path, source: bytes | None = None) -> Langua
     return "objectivec" if _OBJC_HEADER_DECLARATION_RE.search(head) else None
 
 
+# Unlike .inl/.ipp/.tpp, .inc is shared with PL/I, Pascal and PHP. Keep the
+# extension's C++ default only when the head contains a C/C++ construct.
+_CPP_INC_SNIFF_BYTES = 16384
+_CPP_INC_SIGNAL_RE = re.compile(
+    rb"^[ \t]*#[ \t]*(?:include|define|undef|if|ifdef|ifndef|elif|else|endif|pragma|error|line)\b"
+    rb"|\bnamespace\s+[A-Za-z_]|\btemplate\s*<|[{}]",
+    re.MULTILINE,
+)
+_C_COMMENT_OR_STRING_RE = re.compile(
+    rb"//[^\n]*|/\*.*?(?:\*/|\Z)|\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'",
+    re.DOTALL,
+)
+
+
+def _cpp_inc_language(abs_path: Path, source: bytes | None = None) -> LanguageTag | None:
+    """``cpp`` for an .inc with C++ evidence outside comments and strings, else None.
+
+    Includes in an unsupported language must stay unindexed, rather than
+    becoming C++ files whose missing importers look like dead code.
+    """
+    head = _head(abs_path, source, _CPP_INC_SNIFF_BYTES)
+    if head is None:
+        return None
+    head = _C_COMMENT_OR_STRING_RE.sub(lambda m: re.sub(rb"[^\n]", b" ", m.group(0)), head)
+    return "cpp" if _CPP_INC_SIGNAL_RE.search(head) else None
+
+
 # DCLGEN writes the table declaration, then the ``01`` record, at the top of a
 # member; a 750-column table (the DB2 maximum) declares in about 62 KB.
 _DCLGEN_SNIFF_BYTES = 131072
@@ -1152,6 +1179,8 @@ def _content_language(
     so the working tree is not read in their place.
     """
     if language == "cpp":
+        if abs_path.suffix.lower() == ".inc":
+            return _cpp_inc_language(abs_path, source)
         return _objc_header_language(abs_path, source) or language
     return language or _dclgen_language(abs_path, source)
 
