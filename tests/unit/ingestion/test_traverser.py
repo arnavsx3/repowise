@@ -194,7 +194,11 @@ class TestIncLanguageDetection:
             "namespace library\n",
             "template <typename T> T identity(T);\n",
             "constexpr int answer() { return 42; }\n",
-            "{ 1, 2 },\n",
+            "int answer() { return 42; }\n",
+            "int counts[] = { 1, 2 };\n",
+            'std::string name() { return "example"; }\n',
+            'const char *tag = "<?php";\n',
+            "/* <?php */\n// <?php\nstruct Value { int count; };\n",
             "/* License banner */\n// implementation\nint answer() { return 42; }\n",
         ],
     )
@@ -215,10 +219,21 @@ class TestIncLanguageDetection:
             "DCL TEXT CHAR(80) INIT('namespace example { template <class T> }');\n",
             'DCL TEXT CHAR(80) INIT("/* not a comment */ namespace example {}");\n',
             "/* An unfinished comment containing { and #define\n",
+            "{ field layout }\nvar Count: Integer;\n",
+            "{$I types.inc}\n",
+            "{ namespace example { template <class T> } }\nvar Count: Integer;\n",
+            "(* #include <example.h>\nnamespace example { } *)\nvar Count: Integer;\n",
+            "{ An unfinished comment with namespace example\n",
+            "<?php\nfunction countItems() { return 1; }\n",
+            "<?php\nnamespace App\\Models;\n",
+            "<?= renderItems(); ?>\n",
+            "<? function countItems() { return 1; } ?>\n",
+            # Braces without a C++ declaration can also be a Pascal comment.
+            "{ 1, 2 },\n",
             "",
         ],
     )
-    def test_non_cpp_members_are_unknown(self, tmp_path: Path, content: str) -> None:
+    def test_members_without_cpp_evidence_are_unknown(self, tmp_path: Path, content: str) -> None:
         f = tmp_path / "member.inc"
         f.write_text(content)
         assert _detect_language(f) == "unknown"
